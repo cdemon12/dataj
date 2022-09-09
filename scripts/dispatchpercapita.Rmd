@@ -1,0 +1,113 @@
+---
+title: "Dispatch per capita"
+output: html_notebook
+---
+
+Data is year-to-date
+
+Population of Columbia, MO is 125,691.
+
+```{r}
+library(tidyverse)
+library(lubridate)
+
+# Read data
+dispatch <- read_csv("data/dispatch.csv") %>% mutate(CallDateTime = mdy_hms(CallDateTime))
+```
+
+Crime Categories per 100,000
+
+```{r}
+# Columbia Pop.
+columbia <- 125691
+
+# Calculating per capita
+dispatch_per_capita <- dispatch %>% count(ExtNatureDisplayName) %>% arrange(desc(n)) %>% mutate(DispatchCallsPerCapita = round((n/columbia) * 100000, 2)) %>% rename(DispatchCalls = n)
+```
+
+I need a full year of data to make this data comparable. So, I loaded all the data in the last year.
+
+```{r}
+# Read data
+dispatch_year <- read_csv("data/dispatch_year.csv") %>% mutate(CallDateTime = mdy_hms(CallDateTime))
+
+# Check date range
+dispatch_year %>% summarise(range(CallDateTime))
+```
+
+```{r}
+# Calculate per year
+dispatch_year_per_capita <- dispatch_year %>% count(ExtNatureDisplayName) %>% arrange(desc(n)) %>% mutate(DispatchCallsPerCapita = round((n/columbia) * 100000, 2)) %>% rename(DispatchCalls = n)
+```
+
+#### Compare to Springfield, MO
+
+Springfield only had data by year and no data for the current year. Columbia only had data for the last 365 days. So, this data is not apples to apples.
+
+```{r}
+# Read data
+dispatch_spring <- read_csv("data/dispatch_springfield.csv") %>% select(1,10) %>% rename(DispatchCalls = lastyear)
+
+#Clean data
+dispatch_spring$DispatchCalls <- str_remove_all(dispatch_spring$DispatchCalls, "[ , ]")
+
+#Change data type to numeric
+dispatch_spring$DispatchCalls <- as.numeric(dispatch_spring$DispatchCalls)
+```
+
+Springfield pop. = 167,601
+
+```{r}
+# Springfield Pop.
+springfield <- 167601
+
+# Calculate per capita
+dispatch_spring_per_capita <- dispatch_spring %>%  arrange(desc(DispatchCalls)) %>%  mutate(DispatchCallsPerCapita = round(DispatchCalls/springfield * 100000, 2))
+```
+
+Compare Columbia and Springfield
+
+```{r}
+#Uppercase all springfield event types
+dispatch_spring_per_capita$`Event Type` <- toupper(dispatch_spring_per_capita$`Event Type`)
+
+#Clean data
+dispatch_spring_per_capita$`Event Type` <- str_remove_all(dispatch_spring_per_capita$`Event Type`, "[ ,]")
+
+# Add city data
+dispatch_year_per_capita$City <- "Columbia"
+dispatch_spring_per_capita$City <- "Springfield"
+
+# Standardize column names
+dispatch_year_per_capita <- dispatch_year_per_capita %>% rename(Name = ExtNatureDisplayName)
+dispatch_spring_per_capita <- dispatch_spring_per_capita %>% rename(Name = "Event Type")
+
+# Remove event types without matches
+dispatch_matches_columbia <- semi_join(dispatch_year_per_capita, dispatch_spring_per_capita, by=c("Name" = "Name"))
+dispatch_matches_spring <- semi_join(dispatch_spring_per_capita, dispatch_year_per_capita, by=c("Name" = "Name"))
+
+# Append tables
+dispatch_match <- dispatch_matches_columbia %>% bind_rows(dispatch_matches_spring) %>% arrange(desc(DispatchCallsPerCapita))
+```
+
+Create comparative table
+
+```{r echo=TRUE}
+# Join tables
+dispatch_compare <- full_join(dispatch_year_per_capita,dispatch_spring_per_capita,by= c("Name" = "Name")) %>% select(Name, DispatchCallsPerCapita.x, DispatchCallsPerCapita.y) %>% rename(Columbia = "DispatchCallsPerCapita.x") %>% rename(Springfield = "DispatchCallsPerCapita.y")
+
+dispatch_compare
+```
+
+Make comparative graph
+
+```{r}
+bargraph <- ggplot(data = dispatch_match) +
+  geom_bar(aes(x = Name,
+               y = DispatchCallsPerCapita,
+               fill = City),
+           stat = "identity",
+           position = position_dodge()) +
+  theme(legend.title=element_blank()) + coord_flip()
+bargraph
+```
