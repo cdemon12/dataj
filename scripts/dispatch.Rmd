@@ -1,0 +1,60 @@
+---
+title: "Dispatch"
+output:
+html_notebook: default
+---
+
+```{r}
+library(tidyverse)
+library(lubridate)
+```
+
+```{python}
+import pandas as pd
+```
+
+Load the data downloaded from [como.gov: 911 dispatch](https://www.como.gov/CMS/911dispatch/police.php?type=&keyword=&Start_Date=2021-01-01&End_Date=2022-01-01&Submit=Filter)
+
+```{r}
+dispatch <- read_csv("data/dispatch.csv")
+```
+
+```{python}
+with open("data/dispatch.csv", "r") as f:
+  display(pd.read_csv(f))
+```
+
+First things first (always do this with new data):
+
+-   How many rows? What is one row?
+    -   57,493 rows
+
+    -   11 columns
+
+```{r}
+dispatch_duplicates <- dispatch %>% count(InNum)%>% filter(n>1)
+
+dispatch %>% semi_join(y=dispatch_duplicates, by="InNum")
+```
+
+-   What's in each field?
+
+    ```{r}
+    dispatch <- dispatch %>% mutate(new_CDT = mdy_hms(CallDateTime))
+    ```
+
+    ```{r}
+    dispatch %>% summarise(range(new_CDT))
+    ```
+
+    ```{r}
+    dispatch %>% summarise(range(PolArea, na.rm = TRUE))
+    ```
+
+    ```{r}
+    dispatch %>% filter(grepl("university", Address, ignore.case=T))
+    ```
+
+    ```{r}
+    count(substr(PolArea,1,2))
+    ```
