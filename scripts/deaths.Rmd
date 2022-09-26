@@ -67,9 +67,14 @@ All of my questions are answered using the whole dataset as the time period (201
 1\. How many people die in the US every year? **2,549,372 (possible error = + 25,758 due to suppression)**
 
 ```{r}
-deaths_by_year <- deaths %>% filter(grepl("#", icd_10_113_cause_list)) %>%  group_by(year) %>% summarise(total_deaths = sum(num_deaths, na.rm=T))
+deaths_by_year <- deaths %>% 
+  filter(grepl("#", icd_10_113_cause_list)) %>%  
+  group_by(year) %>% 
+  summarise(total_deaths = sum(num_deaths, na.rm=T))
 
-deaths %>% filter(grepl("#", icd_10_113_cause_list)) %>% count(is.na(num_deaths)) # 2,862 suppressed values, so there is an possible error of atleaet 9 * 2,862 = 25,758
+deaths %>% 
+  filter(grepl("#", icd_10_113_cause_list)) %>% 
+  count(is.na(num_deaths)) # 2,862 suppressed values, so there is an possible error of atleaet 9 * 2,862 = 25,758
 
 cat("The average number of deaths per year from 2018-20 is", mean(deaths_by_year$total_deaths), "with a positve error due to supression.")
 ```
@@ -77,7 +82,12 @@ cat("The average number of deaths per year from 2018-20 is", mean(deaths_by_year
 2\. What caused the most deaths in Missouri? **Diseases of heart with 45,845 deaths**
 
 ```{r}
-deaths_missouri <- deaths %>% filter(grepl("#", icd_10_113_cause_list)) %>%  filter(state=="Missouri") %>% group_by(icd_10_113_cause_list) %>% summarise(total_deaths = sum(num_deaths, na.rm=T)) %>% arrange(desc(total_deaths))
+deaths_missouri <- deaths %>%
+  filter(grepl("#", icd_10_113_cause_list)) %>%  
+  filter(state=="Missouri") %>% 
+  group_by(icd_10_113_cause_list) %>% 
+  summarise(total_deaths = sum(num_deaths, na.rm=T)) %>% 
+  arrange(desc(total_deaths))
 
 head(deaths_missouri, 3)
 ```
@@ -95,12 +105,6 @@ deaths_by_state <- deaths %>%
   arrange(desc(per_capita))
 
 head(deaths_by_state, 3)
-
-deaths %>% 
-  filter(grepl("#", icd_10_113_cause_list), year==2020) %>%  
-  group_by(state, num_pop) %>% 
-  summarise(total_deaths = sum(num_deaths, na.rm=T)) %>% 
-  mutate(rate = total_deaths/num_pop*100000)
 ```
 
 4\. How many people died from firearms? **122,205** Drugs? **215,576 unintentional poisonings** Suicide? **141,834**
@@ -109,7 +113,10 @@ There is not enough data for figure out drug overdose exclusively, so I used the
 
 ```{r}
 #This is my second attempt
-deaths %>% group_by(icd_10_113_cause_list) %>% filter(grepl("suicide|firearm|poisoning", icd_10_113_cause_list)) %>% summarise(total_deaths=sum(num_deaths, na.rm=T))
+deaths %>% 
+  group_by(icd_10_113_cause_list) %>% 
+  filter(grepl("suicide|firearm|poisoning", icd_10_113_cause_list)) %>% 
+  summarise(total_deaths=sum(num_deaths, na.rm=T))
 
 #This is my first attempt that didn't work exactly how wanted to and was way more complicated
 #Create function to search tibble column for a list of csv
@@ -145,7 +152,11 @@ head(drug_deaths,3)
 5\. What is the most common cause of death for each year? **Diseases of heart for all years**
 
 ```{r}
-deaths %>% filter(grepl("#", icd_10_113_cause_list)) %>% group_by(year,icd_10_113_cause_list) %>%  summarise(total_deaths=sum(num_deaths, na.rm=T)) %>% arrange(desc(total_deaths))
+deaths %>% 
+  filter(grepl("#", icd_10_113_cause_list)) %>% 
+  group_by(year,icd_10_113_cause_list) %>%  
+  summarise(total_deaths=sum(num_deaths, na.rm=T)) %>% 
+  arrange(desc(total_deaths))
 ```
 
 Story: Every year, a quarter of trillion people pass away -- the most common cause being diseases of the heart.
