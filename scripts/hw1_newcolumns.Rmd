@@ -1,0 +1,33 @@
+---
+title: "Hot 100 - expanded columns"
+output: html_notebook
+---
+
+Initialize libraries
+
+```{r}
+library(tidyverse)
+library(reticulate)
+library(stringr)
+```
+
+Load data
+
+```{r}
+hot <- read_csv("data/hot-100-current.csv")
+```
+
+Testing "str_split"
+
+```{r}
+tmp <- str_split("Beyonce featuring Jay-Z", " featuring ")
+
+tmp[[1]][1]
+
+hot <- hot %>% mutate(primary_performers = str_split(performer, " featuring ")[1])
+
+
+
+hot
+```
+

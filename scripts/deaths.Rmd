@@ -1,0 +1,153 @@
+---
+title: "Deaths - Sept 19"
+output: 
+html_notebook: default
+---
+
+Data downloaded from unique request link at [CDC Wonder](https://wonder.cdc.gov/controller/datarequest/D76) Downloaded: September 19, 2022
+
+```{r}
+library(tidyverse)
+library(janitor)
+library(stringr)
+```
+
+```{r}
+deaths <- read_tsv("data/Underlying Cause of Death, 1999-2020.txt")
+```
+
+### Pull out the notes
+
+```{r}
+notes <- deaths %>% filter(!is.na(Notes)) %>% select(Notes)
+deaths <- deaths %>% filter(is.na(Notes)) %>% select(-Notes)
+write_csv(notes, "data/ucd-notes.csv")
+```
+
+### Clean header row:
+
+```{r}
+deaths <- clean_names(deaths)
+```
+
+### Integrity checks:
+
+```{r}
+deaths %>% filter(is.na(state)) #these were the notes, no longer a problem
+
+deaths %>% count(state) # 51 states (50 plus DC)
+
+deaths %>% count(icd_10_113_cause_list)
+# 137 causes; note the hashtag # in front of some causes (which indicates the aggregate causes not the detail causes from the notes).
+
+deaths %>% count(deaths) %>% arrange(desc(n)) 
+# 4,981 suppressed
+
+deaths %>% count(year)
+# three years: 2018, 2019, 2020. Ideally we want more years to really look at trends. 
+```
+
+### Turn deaths and pop into numeric:
+
+```{r}
+deaths <- deaths %>% mutate(num_deaths = as.numeric(deaths))
+deaths <- deaths %>% mutate(num_pop = as.numeric(population))
+```
+
+### Read the documentation!
+
+Caveats: 1. Totals and Percent of Total are disabled when data are grouped by a 113 or 130 Cause List because both values are displayed aggregate and detailed in the table. Also be aware that charts and maps containing both aggregate and detail data could be misleading. \*Therefore we must exclude details (non hashtag causes) in totals!\*
+
+Note that the notes tell you how the CDC calculates age-adjusted rates There's also [documentation](%5Bhttps://wonder.cdc.gov/wonder/help/ucd.html#2000%20Standard%20Population)](<https://wonder.cdc.gov/wonder/help/ucd.html#2000%20Standard%20Population>)) about what population figures are used.
+
+### Questions from the assignment:
+
+All of my questions are answered using the whole dataset as the time period (2018-2020).
+
+1\. How many people die in the US every year? **2,549,372 (possible error = + 25,758 due to suppression)**
+
+```{r}
+deaths_by_year <- deaths %>% filter(grepl("#", icd_10_113_cause_list)) %>%  group_by(year) %>% summarise(total_deaths = sum(num_deaths, na.rm=T))
+
+deaths %>% filter(grepl("#", icd_10_113_cause_list)) %>% count(is.na(num_deaths)) # 2,862 suppressed values, so there is an possible error of atleaet 9 * 2,862 = 25,758
+
+cat("The average number of deaths per year from 2018-20 is", mean(deaths_by_year$total_deaths), "with a positve error due to supression.")
+```
+
+2\. What caused the most deaths in Missouri? **Diseases of heart with 45,845 deaths**
+
+```{r}
+deaths_missouri <- deaths %>% filter(grepl("#", icd_10_113_cause_list)) %>%  filter(state=="Missouri") %>% group_by(icd_10_113_cause_list) %>% summarise(total_deaths = sum(num_deaths, na.rm=T)) %>% arrange(desc(total_deaths))
+
+head(deaths_missouri, 3)
+```
+
+3\. Which state reported the most deaths? **California with 759,368 deaths but West Virginia had the most deaths per capita with 1,129 per 100,000**
+
+```{r}
+deaths_by_state <- deaths %>% 
+  filter(grepl("#", icd_10_113_cause_list))%>% 
+  group_by(state, num_pop) %>% 
+  summarise(total_deaths = sum(num_deaths, na.rm=T)) %>% 
+  mutate(per_capita = total_deaths*100000/num_pop) %>% 
+  group_by(state) %>% 
+  summarise(total_deaths=sum(total_deaths, na.rm=T),per_capita=mean(per_capita, na.rm=T)) %>% 
+  arrange(desc(per_capita))
+
+head(deaths_by_state, 3)
+
+deaths %>% 
+  filter(grepl("#", icd_10_113_cause_list), year==2020) %>%  
+  group_by(state, num_pop) %>% 
+  summarise(total_deaths = sum(num_deaths, na.rm=T)) %>% 
+  mutate(rate = total_deaths/num_pop*100000)
+```
+
+4\. How many people died from firearms? **122,205** Drugs? **215,576 unintentional poisonings** Suicide? **141,834**
+
+There is not enough data for figure out drug overdose exclusively, so I used the unintentional poisoning, of which drug overdoses are a subset.
+
+```{r}
+#This is my second attempt
+deaths %>% group_by(icd_10_113_cause_list) %>% filter(grepl("suicide|firearm|poisoning", icd_10_113_cause_list)) %>% summarise(total_deaths=sum(num_deaths, na.rm=T))
+
+#This is my first attempt that didn't work exactly how wanted to and was way more complicated
+#Create function to search tibble column for a list of csv
+vector_grepl <- function(codes){
+  #turn csv into char vector
+  codes <- codes %>% str_split(",")
+  #create empty tibble
+  tib <- tibble()
+  #loop over codes and search in deaths
+  for (x in codes){
+    temp <- filter(deaths, grepl(x,icd_10_113_cause_list))
+    tib <- bind_rows(temp,tib)
+  }
+  # return tibble with number of deaths by year
+  tib %>% group_by(year)%>% summarise(total_deaths = sum(num_deaths, na.rm=T))
+}
+
+#Firearms
+firearm_codes <- "*U01.4,W32–W34,X72–X74,X93–X95,Y22–Y24,Y35.0"
+firearm_deaths <- vector_grepl(firearm_codes)
+head(firearm_deaths,3)
+
+#Suicide
+suicide_codes <- "*U03,X60–X84,Y87.0, X78,X71,X80,X76–X77,X76,X77,X72–X74,X82,X82,X60–X69,X79,X70,*U03.0, X75,X81,X83,Y87.0,*U03.9,X84"
+suicide_deaths <- vector_grepl(suicide_codes)
+head(suicide_deaths, 3)
+
+#Drugs
+drug_deaths <- deaths %>% filter(grepl("X40-X49",icd_10_113_cause_list))%>% group_by(year)%>% summarise(total_deaths = sum(num_deaths, na.rm=T))
+head(drug_deaths,3)
+```
+
+5\. What is the most common cause of death for each year? **Diseases of heart for all years**
+
+```{r}
+deaths %>% filter(grepl("#", icd_10_113_cause_list)) %>% group_by(year,icd_10_113_cause_list) %>%  summarise(total_deaths=sum(num_deaths, na.rm=T)) %>% arrange(desc(total_deaths))
+```
+
+Story: Every year, a quarter of trillion people pass away -- the most common cause being diseases of the heart.
+
+Between 2018 and 2020, 122,205 people died due firearm-related causes, while 141,834 committed suicide. During this period, the most people died in West Virginia relative to its population.

@@ -1,0 +1,133 @@
+---
+title: "Homework 1"
+output: html_notebook
+---
+
+I chose to answer my question using Python and R, so, I can keep up my python skills as I learn R. Feel free to ignore my Python sections. It did help with accuracy because when my code in each language disagree, I knew I did something wrong.
+
+*LIZ: sounds like a good strategy to test your R code*
+
+Initialize libraries
+
+```{r}
+library(tidyverse)
+library(reticulate)
+```
+
+```{python}
+import pandas as pd
+```
+
+Load data
+
+```{r}
+hot <- read_csv("data/hot-100-current.csv")
+```
+
+```{python}
+with open("data/hot-100-current.csv", "r") as file:
+  hot = pd.read_csv(file)
+```
+
+Display data
+
+```{r}
+view(hot)
+view(py$hot)
+```
+
+Basic data information
+
+-   334,400 rows, 7 columns
+
+```{r}
+hot %>% count(chart_week)
+```
+
+-   3,344 weeks of charts
+
+-   Some band names are spelled multiple ways (e.g. "Matchbox Twenty" and "Matchbox 20"). I didn't correct for this.
+
+Question for data
+
+1.  Which artist had the most weeks on the chart for any of their songs?
+
+    ```{r}
+    artists <- hot %>% count(performer) %>% arrange(desc(n))
+    head(artists, 3)
+    ```
+
+```{python}
+artists = hot.groupby("performer")["title"].count().reset_index(name="count").sort_values("count", ascending=False)
+print(artists.head(3))
+```
+
+```{r}
+view(py$artists)
+```
+
+Answer: Taylor Swift had the most songs charted with 1,079 weeks of a song charting. When an artist had two songs on the charts, I counted that as two weeks.
+
+2.  What songs spent the most weeks in the top ten during this period?
+
+    ```{r}
+    topten <- hot %>% filter(current_week <= 10) %>% count(performer, title) %>% arrange(desc(n))
+    head(topten, 3)
+    ```
+
+```{python}
+topten = hot[hot["current_week"] <= 10].groupby(["title", "performer"])["current_week"].count().reset_index(name = "count").sort_values("count", ascending=False)
+topten.head(3)
+```
+
+Answer: Blinding Lights by Weeknd spent the most time in the top ten with 57 weeks in the top ten.
+
+3.  What artists have had the most songs in the top 100?
+
+```{r}
+charted <- hot %>% count(performer, title) %>% count(performer) %>% arrange(desc(n))
+head(charted, 10)
+```
+
+```{python}
+charted = hot.groupby(["title", "performer"])["chart_week"].count().count("performer").reset_index(name = "count").sort_values("count", ascending = False)
+charted.head(10)
+```
+
+Answer: Surprisingly, Glee Cast had the most songs in the top 100, with 183 chart-making songs.
+
+4.  How many artists have charted more than five times?
+
+*LIZ: technically your code asks more than six times*
+```{r}
+twoplus <- charted %>% filter(n > 6) %>% count() %>% as.numeric()
+twoplus
+```
+
+```{python}
+twoplus = len(charted[charted["count"] > 6].groupby("performer"))
+twoplus
+```
+
+Answer: 982 artists have charted five or more times.
+
+5.  How many charted songs mention "Christmas" in title?
+
+```{r}
+christmas <- hot %>% filter(grepl("Christmas", title)) %>% count() %>% as.numeric()
+christmas
+```
+
+```{python}
+christmas = len(hot[hot["title"].str.contains("Christmas")])
+christmas
+```
+
+Answer: 398 songs contain Christmas in its title.
+
+*LIZ: Really good use of code here, and I'm impressed by the side by side R and Python code. Great that you note some of the artists' names are represented inconsistently. For the last question, I appreciate the answerability of the question with regard to code, but realistically wouldn't it be a better question to ask how many charted songs are Christmas songs? Which is, of course, much harder to answer. But something to keep in mind when you're thinking like a journalist; don't just ask questions that are easy to answer.*
+
+```{r}
+
+```
+
