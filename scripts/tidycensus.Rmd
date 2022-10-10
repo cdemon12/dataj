@@ -1,0 +1,91 @@
+---
+title: "Introduction to tidycensus"
+output: 
+html_notebook: default
+---
+
+```{r}
+library(tidyverse)
+library(tidycensus)
+```
+
+Here's the documentation for [tidycensus](https://walker-data.com/tidycensus/articles/basic-usage.html#geography-in-tidycensus-1)
+
+### Pulling data from the ACS
+
+```{r}
+county_pop <- get_acs(geography = "county", 
+              variables = "B01001_001", 
+              state = "MO", 
+              year = 2020)
+
+county_pop_acs1 <- get_acs(geography = "county", 
+              variables = "B01001_001", 
+              state = "MO", 
+              year = 2019,
+              survey = "acs1")
+
+# 1-year ACS is not available for 2020
+```
+
+Now by place (and you can rename the variable):
+
+```{r}
+place_pop <- get_acs(geography = "place", 
+              variables = c(population="B01001_001"), 
+              state = "MO", 
+              year = 2021,
+              survey="acs1")
+
+place_pop <- place_pop %>% mutate(moe_pct = moe/estimate)
+```
+
+Read the documentation on searching for variables: 
+[https://walker-data.com/tidycensus/articles/basic-usage.html#searching-for-variables](https://walker-data.com/tidycensus/articles/basic-usage.html#searching-for-variables)
+
+Load all the variables for the 5-year ACS data:
+```{r}
+acs2020_var <- load_variables(2020, "acs5", cache=TRUE)
+```
+
+You can search through the variables for particular topics
+```{r}
+acs2020_var %>% filter(grepl("Income", label, ignore.case = T))
+
+acs2020_var %>% filter(grepl("B25049", name))
+```
+
+Or you can use [data.census.gov](data.census.gov) to locate the variables you're interested in.
+
+-   Search for "plumbing"
+-   Look for the first table that's from the American Community Survey
+-   The table name is "TENURE BY PLUMBING FACILITIES"
+-   The table ID is B25049
+
+Get the variables from this table for all places in Missouri:
+
+```{r}
+
+```
+
+A note: if you come across tables that starts with S they are "subject" tables, so you need to pull a different set of variables (refer to the documentation again)
+
+For example, if you search "AGE" the main table that comes up with "AGE AND SEX", which is table "S0101"
+
+```{r}
+acs2020_s_var <- load_variables(2020, "acs5/subject", cache=TRUE)
+
+
+```
+
+
+### More about geographies:
+
+[Place](https://www.census.gov/programs-surveys/geography/about/glossary.html#par_textimage_14) [Tract](https://www.census.gov/programs-surveys/geography/about/glossary.html#par_textimage_13) \* subdivisions of a county \* generally have a population size between 1,200 and 8,000 people \* an optimum size of 4,000 people \* usually covers a contiguous area [Block Group](https://www.census.gov/programs-surveys/geography/about/glossary.html#par_textimage_4) \* subdivisions of a tract \* generally contain between 600 and 3,000 people \* consists of clusters of blocks within the same census tract \* usually covers a contiguous area [Block](https://www.census.gov/programs-surveys/geography/about/glossary.html#par_textimage_5) \* subdivisions of a block group \* statistical areas bounded by visible features, such as streets, roads, streams, and railroad tracks, and by nonvisible boundaries, such as selected property lines and city, township, school district, and county limits \* generally small in area; for example, a block in a city bounded on all sides by streets. Census blocks in suburban and rural areas may be large and irregular
+
+### More about Census definitions:
+
+-   Housing unit: A housing unit is a house, an apartment, a mobile home, a group of rooms, or a single room that is occupied (or if vacant, is intended for occupancy) as separate living quarters. Separate living quarters are those in which the occupants live and eat separately from any other persons in the building and which have direct access from the outside of the building or through a common hall.
+-   Group Quarters: Group quarters are defined as places where people live or stay in a group living arrangement that is owned or managed by an organization providing housing and/or services for the residents.
+-   Household: A household includes all the persons who occupy a housing unit as their usual place of residence.
+-   Family: A family is a group of two people or more (one of whom is the householder) related by birth, marriage, or adoption and residing together

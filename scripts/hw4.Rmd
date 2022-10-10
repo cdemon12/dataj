@@ -1,0 +1,50 @@
+---
+title: "Homwork 4"
+output: None
+---
+```{r}
+library(tidyverse)
+library(tidycensus)
+```
+1. Are there any counties in the US that have a median age below 30? How many? **58**
+```{r}
+acs2020_var <- load_variables(2020, "acs5", cache=TRUE)
+
+acs2020_var %>% filter(grepl("median age", label, ignore.case = T))
+
+median_age <- get_acs(geography = "county", 
+                     variables = "B01002_001", 
+                     year = 2020)
+
+median_age %>% filter(estimate < 30) %>% nrow()
+```
+2. What percentage of the Missouri population lives at 150% of the poverty level? How does that compare to the national rate? **The nation poverty level above 150% of the poverty level is 0.5% below than Missouri**
+```{r}
+acs2020_var %>% filter(grepl("poverty level", label, ignore.case = T))
+
+
+get_acs(geography = "state",
+        state = "MO",
+        variables = "B01002_001", 
+        year = 2020) # 38.7
+
+get_acs(geography = "us",
+        variables = "B01002_001", 
+        year = 2020) # 38.2
+```
+3.How has the Columbia, MO population changed in the last five years? What about 10? 
+```{r}
+#NST_EST2021_POP code from data.census.gov
+pop <- get_estimates(geography = "place",
+                     variables = "POP",
+                     year = 2019,
+                     state = "MO",
+                     time_series = T
+                     )
+pop %>% 
+  filter(grepl("Columbia", NAME)) %>% 
+  ggplot(aes(x=DATE, y=value)) + 
+  geom_line(color="red")
+
+```
+
