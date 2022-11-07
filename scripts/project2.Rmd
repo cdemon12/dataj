@@ -1,0 +1,339 @@
+---
+title: "Tidycensus Project 2: MU as an economic engine"
+output: html_notebook
+---
+
+Context for the direction of this project: In my Business Journalism class, we are working on creating an special section for the Missourian about Mizzou as an economic engine. So, I thought this project would be a good opportunity to explore the Columbia's census data in this light with the goal of using some of this analysis in actual publication.
+
+Budget line for my story: Many people come to Columbia for an education, but do they stay? University towns are often beds of innovation; is this true for Columbia? The Economic Impact Report makes bold claims about the school's local impact. What does this actually look like? What do the university, students who stay and those who left say?
+
+This story would examine the economic reality of living in a college town, using Census migration data, cost of living and education levels. This will include photos and charts.
+
+```{r}
+library(tidyverse)
+library(tidycensus)
+library(maps)
+library(sf)
+library(plotly)
+library(networkD3)
+```
+Documentation for [tidycensus](https://walker-data.com/tidycensus/index.html)
+
+Documention for census variables: (https://data.census.gov)
+
+## Section 1: Education levels
+
+Educational attainment:
+ - Options for surveys:  2021 ACS 1-year, 2020 ACS 5-year
+  - I'm going with more recent over survey length
+ - Code: S1501
+
+```{r}
+acs2021_var <- load_variables(2021,
+                              "acs1/subject",
+                              cache=TRUE)
+
+education_var <- acs2021_var %>% filter(grepl("S1501", name, ignore.case = T))
+
+education_mo <- get_acs(geography = "place",
+                     table = "S1501",
+                     state = "MO",
+                     year = 2021,
+                     survey = "acs1")
+
+education_como <- education_mo %>% 
+            filter(grepl("Columbia", NAME)) %>%  
+            left_join(education_var %>% select(name, label), by = c("variable" = "name")) %>%
+            select(label,estimate, moe, variable)
+
+# US average for reference
+
+# assignment operator shortcut is alt+-
+
+education_como <- education_como %>%
+            left_join(get_acs(geography="US",
+                              table = "S1501",
+                              year = 2021,
+                              survey = "acs1") %>% 
+                        select(variable, estimate, moe) %>% 
+                        rename("estimate_us" = "estimate", "moe_us" = "moe"),
+                      by = "variable")
+
+education_percent <- education_como %>% 
+  filter(grepl("Estimate!!Percent!!AGE BY EDUCATIONAL ATTAINMENT!!Population 25 years and over!!", label)) %>% # I could use the code here but I like the readability
+  summarize(label = str_remove(label, "Estimate!!Percent!!AGE BY EDUCATIONAL ATTAINMENT!!Population 25 years and over!!"),
+            estimate,
+            moe,
+            estimate_us,
+            moe_us)
+
+# the idea of this chart is that the distance from the middle line is representative of how much more or less common that level of education in Columbia
+
+education_percent %>% 
+  ggplot(aes(x=estimate, y=estimate_us)) +
+  geom_point() +
+  geom_label(
+    label = education_percent$label,
+    nudge_x = 30, nudge_y = 0, 
+    check_overlap = T) + 
+  geom_abline(
+    intercept = 0, 
+    slope = 1) +
+  xlab("Columbia") +
+  ylab("U.S.") +
+  ggtitle("Education attainment as a percent: Columbia is better educated than the U.S.")
+  
+# I want to create a distribution with Columbia label in it.
+
+education_us <-  get_acs(geography = "place",
+                     variables = "S1501_C02_015",
+                     year = 2021,
+                     survey = "acs1")
+
+#what is the difference between hist() and geom_histogram in ggplot
+#my guess is that geom_histogram plays better with tidyverse and has more features
+
+hist(education_us$estimate, main = title("% of population with a bachelor's degree or higher in cities of 65k+"))
+
+education_us %>% ggplot(aes(estimate)) +
+  geom_histogram(bins=100)
+
+education_us %>% 
+  mutate(city = if_else(NAME == "Columbia city, Missouri", "Columbia", if_else(NAME == "Cambridge city, Massachusetts", "Cambridge, Mass.", if_else(NAME == "Springfield city, Missouri", "Springfield", if_else(NAME == "St. Louis city, Missouri", "St. Louis", if_else(NAME == "New York city, New York", "New York City", "Other")))))) %>% 
+  ggplot(aes(estimate, fill = city))+
+  geom_histogram(bins=100)+
+  geom_vline(xintercept = median(education_us$estimate))+
+  annotate("text",
+           x = median(education_us$estimate) * 1.5,
+           y = 15,
+           label = (paste("Median = ", median(education_us$estimate))),
+           size = 5) +
+  labs(title = "Columbia is better educated than a large majority of cities in America", x="% of population 25 years or older with a bachelor's degree or higher in cities of 65k+", y="Frequency")+
+  ylim(0,20)
+
+#could limit this to just college towns if I got a list of cities with colleges, maybe something census provides?
+
+# bubble time
+
+education_us_nom <-  get_acs(geography = "place",
+                     variables = "S1501_C01_015",
+                     geometry = T,
+                     year = 2021,
+                     survey = "acs1") %>% 
+  filter(!grepl("Alaska|Puerto Rico|Hawaii", NAME))
+  
+  
+education_us_nom <- education_us_nom %>% mutate(geometry = st_centroid(geometry))
+
+glimpse(education_us_nom)
+
+
+US <- map_data("state")
+
+
+# remove Alaska and Hawaii (maybe, I figure out how to add them in)
+cities <- us.cities %>%
+  filter(country.etc != "AK", country.etc != "HI") %>% 
+  inner_join(education_us_nom, by)
+
+
+ggplot()+
+  geom_polygon(data = US, aes(x=long, y=lat, group=group), fill="grey", alpha=0.3)+
+  theme_void()+
+  geom_point(data=cities, aes(x=long, y=lat)) +
+  coord_map()
+
+p <- education_us_nom %>% ggplot() +
+  geom_sf(size = education_us_nom$estimate/50000)+
+  theme_void()+
+  geom_polygon(data = US, aes(x=long, y=lat, group=group), fill="grey", alpha=0.3)
+
+ggplotly(p)
+
+# I will come back to this
+
+```
+
+## Section 2: Migration
+
+```{r}
+migration_var <- acs2021_var %>% filter(grepl("Geographic mobility", concept, ignore.case = T)) # This doesn't have detailed migration data, going to try a different database from tidycensus BUT may use for occupation or income data
+
+boone_flows <- get_flows(geography = "county",
+          state = "MO",
+          county = "Boone county",
+          year = 2019) # 2019 is most recent
+
+boone_flows_age <- get_flows(geography = "county",
+                             breakdown = "AGE",
+                             breakdown_labels = T,
+                             state = "MO",
+                             county = "Boone county",
+                             year = 2015) # most recent data, unfortunately (2011-2015, I think check this)
+
+boone_flows_age %>% count(AGE_label) #18-19, 20-24 are interesting
+
+```
+
+The question I want to answer is how many people moved to Columbia during 18-19 for college and didn't leave from 20-24 or 25-29. The only questions is how?
+
+Here's my thinking:
+
+(number of people who moved when 18-19) - (the number people who left when 20-24 (and also 25-29)) = (the net number of students who stayed in Columbia)
+
+Also, I'm try to think of way to show this graphically.
+
+```{r}
+links <- boone_flows_age %>%
+  filter(AGE_label == "All ages", variable == "MOVEDIN") %>% 
+  rename("source" = "FULL1_NAME", "target" = "FULL2_NAME", "value" = "estimate") %>% 
+  select(source, target, value) %>% filter(value > 400)
+
+# needs to create bin for other
+
+nodes <- tibble(
+  name=c(as.character(links$source), 
+  as.character(links$target)) %>% unique()
+)
+ 
+# With networkD3, connection must be provided using id, not using real name like in the links dataframe.. So we need to reformat it.
+links$IDsource <- match(links$source, nodes$name)-1 
+links$IDtarget <- match(links$target, nodes$name)-1
+ 
+# Make the Network
+sankeyNetwork(Links = links, Nodes = nodes,
+              Source = "IDsource", Target = "IDtarget",
+              Value = "value", NodeID = "name", 
+              sinksRight=FALSE, fontSize = 12)
+```
+
+
+
+I'm also going to explore using age population breakdown:
+
+```{r}
+pop_age <- get_estimates(geography = "county",
+                               product = "characteristics",
+                               breakdown = "AGEGROUP",
+                               breakdown_labels = T,
+                               state = "MO",
+                               county = "Boone county",
+                               year = 2019) # This is only population not net migration, but still could be helpful
+pop_age %>% 
+  slice(2:19) %>% 
+  ggplot(aes(x=AGEGROUP, y=value)) + 
+  geom_bar(stat = "identity") +
+  coord_flip() +
+  labs(title = "Population by age in Boone county", x= "", y= "Population")
+
+pop_age_us <- get_estimates(geography = "us",
+                               product = "characteristics",
+                               breakdown = "AGEGROUP",
+                               breakdown_labels = T,
+                               year = 2019)
+
+pop_age_us %>% 
+  slice(2:19) %>% 
+  ggplot(aes(x=AGEGROUP, y=value)) + 
+  geom_bar(stat = "identity") +
+  coord_flip() +
+  labs(title = "Population by age in U.S", x= "", y= "Population")
+
+pop_como <- pop_age[1,"value"] %>% as.numeric()
+
+pop_age_per <- pop_age %>%
+  mutate(percent = 100*value/pop_como)
+
+pop_age_per %>%   
+  slice(2:19) %>% 
+  ggplot(aes(x=AGEGROUP, y=percent)) + 
+  geom_bar(stat = "identity") +
+  coord_flip() +
+  labs(title = "Population by age in Boone county", x= "", y= "Population")
+
+pop_us <- pop_age_us[1,"value"] %>% as.numeric()
+
+pop_age_per_us <- pop_age_us %>%
+  mutate(percent = 100*value/pop_us)
+
+pop_age_per_us %>%   
+  slice(2:19) %>% 
+  ggplot(aes(x=AGEGROUP, y=percent)) + 
+  geom_bar(stat = "identity") +
+  coord_flip() +
+  labs(title = "Population by age in US", x= "", y= "Population")
+
+pop_age_per <- pop_age_per %>% 
+  left_join(pop_age_per_us %>% select("AGEGROUP", "percent") %>% rename("percent_us" = "percent"), by="AGEGROUP") %>% 
+  mutate(diff = percent - percent_us)
+
+pop_age_per %>%   
+  slice(2:19) %>% 
+  ggplot(aes(x=AGEGROUP, y=diff)) + 
+  geom_bar(stat = "identity") +
+  coord_flip() +
+  labs(title = "Population difference from national average", x= "", y= "Population difference")
+
+```
+I want to see at what Columbia population is proportional to the national average. 
+
+This problem is that my percentages of all non-college residents are shrunk in comparison. 
+
+So, my solution is to remove the college population and calculate a new ratio and then compare apples to apples.
+
+I'm going to remove the difference between Columbia and US for ages 15 to 24 (2 bins).
+
+```{r}
+# attempt one - this didn't work :( 
+adjusted_pop <- pop_age_per %>% 
+  slice(2:19) %>% 
+  mutate(adjusted = ifelse(AGEGROUP == "Age 15 to 19 years", ((percent_us)^2)/(percent_us +1), percent)) %>% 
+  mutate(percent_wo_MU = 100*adjusted/sum(adjusted)) %>% 
+  mutate(adjusted_diff = percent_wo_MU-percent_us)
+
+if(as.numeric(sum(adjusted_pop$percent_wo_MU)) == "100") { print("Success") } else {print("Failure")} # check equals to 100
+
+adjusted_pop %>%   
+  ggplot(aes(x=AGEGROUP, y=(percent_wo_MU-percent_us))) + 
+  geom_bar(stat = "identity") +
+  coord_flip() +
+  labs(title = "Population difference from national average", x= "", y= "Population difference")
+```
+
+96% of Mizzou undergrads (2021) are younger than 24 (Source: https://nces.ed.gov/collegenavigator/?q=university+of+missouri&s=all&id=178396#enrolmt)
+
+The 2019 undergrad on-campus population is 22,000 (Source: https://irqi.missouri.edu/mu-data/student-enrollment/)
+
+Assuming 25% of student are below 19 - not clue if this is even close
+
+```{r}
+ug_on_campus <- 22000 * .96
+
+pop_age_no_MU <- pop_age %>% 
+  mutate(value = 
+           ifelse(AGEGROUP ==  "Age 15 to 19 years", value-(.25*ug_on_campus), 
+                  ifelse(AGEGROUP == "Age 20 to 24 years", value-(.75*ug_on_campus), 
+                         value))) %>%
+  mutate(percent = 100*value/pop_como) %>% 
+  left_join(pop_age_per_us %>% 
+              select("AGEGROUP", "percent") %>%
+              rename("percent_us" = "percent"), by="AGEGROUP") %>% 
+  mutate(diff = percent - percent_us)
+
+pop_age_no_MU %>% 
+  slice(2:19) %>% 
+  ggplot(aes(x=diff, y=AGEGROUP)) +
+  geom_bar(stat = "identity") +
+  labs(title = "Age difference from national average in Columbia without MU Undergrades", x="Percent difference", y="")
+```
+
+ 
+
+
+
+
+
+
+
+
+
