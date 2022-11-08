@@ -17,12 +17,21 @@ library(sf)
 library(plotly)
 library(ggsankey)
 library(stringr)
+library(scales)
+library(ggrepel)
 ```
+
 Documentation for [tidycensus](https://walker-data.com/tidycensus/index.html)
 
 Documention for census variables: (https://data.census.gov)
 
-## Section 1: Education levels
+```{r}
+acs2021_var <- load_variables(2021,
+                              "acs1/subject",
+                              cache=TRUE)
+```
+
+## Education levels
 
 Educational attainment:
  - Options for surveys:  2021 ACS 1-year, 2020 ACS 5-year
@@ -30,10 +39,6 @@ Educational attainment:
  - Code: S1501
 
 ```{r}
-acs2021_var <- load_variables(2021,
-                              "acs1/subject",
-                              cache=TRUE)
-
 education_var <- acs2021_var %>% filter(grepl("S1501", name, ignore.case = T))
 
 education_mo <- get_acs(geography = "place",
@@ -100,7 +105,7 @@ education_us %>% ggplot(aes(estimate)) +
   geom_histogram(bins=100)
 
 education_us %>% 
-  mutate(city = if_else(NAME == "Columbia city, Missouri", "Columbia", if_else(NAME == "Cambridge city, Massachusetts", "Cambridge, Mass.", if_else(NAME == "Springfield city, Missouri", "Springfield", if_else(NAME == "St. Louis city, Missouri", "St. Louis", if_else(NAME == "New York city, New York", "New York City", "Other")))))) %>% 
+  mutate(city = if_else(NAME == "Columbia city, Missouri", "Columbia",if_else(NAME == "Cambridge city, Massachusetts", "Cambridge, Mass.", if_else(NAME == "Springfield city, Missouri", "Springfield", if_else(NAME == "St. Louis city, Missouri", "St. Louis", if_else(NAME == "New York city, New York", "New York City", "Other")))))) %>% 
   ggplot(aes(estimate, fill = city))+
   geom_histogram(bins=100)+
   geom_vline(xintercept = median(education_us$estimate))+
@@ -121,7 +126,7 @@ education_us_nom <-  get_acs(geography = "place",
                      geometry = T,
                      year = 2021,
                      survey = "acs1") %>% 
-  filter(!grepl("Alaska|Puerto Rico|Hawaii", NAME))
+                     filter(!grepl("Alaska|Puerto Rico|Hawaii", NAME))
   
   
 education_us_nom <- education_us_nom %>% mutate(geometry = st_centroid(geometry))
@@ -155,7 +160,7 @@ ggplotly(p)
 
 ```
 
-## Section 2: Migration
+## Migration
 
 ```{r}
 migration_var <- acs2021_var %>% filter(grepl("Geographic mobility", concept, ignore.case = T)) # This doesn't have detailed migration data, going to try a different database from tidycensus BUT may use for occupation or income data
@@ -252,7 +257,6 @@ sankey <- links %>% ggplot(aes(x = x,
                   fill = factor(node),
                   label = paste0("       ", node))) +
               geom_sankey(flow.alpha = 0.5,
-                          node.color = "black",
                           show.legend = F) +
               geom_sankey_text(size = 2,
                                hjust = 0)+
@@ -260,15 +264,9 @@ sankey <- links %>% ggplot(aes(x = x,
               theme(legend.position = "none")+
               labs(title = "Migration flow to and from Boone county from 2011-15",
                    x = "",
-                   subtitle = "Columbia from 2011-15 had a net gain of 4,406 residents, with other places \nin Missouri, Illinois and Asia being the most common places to move from.") +
-                geom_label(label="Look at this!", 
-                           x=4.1,
-                           y=20,
-                           label.padding = unit(0.55, "lines"),
-                           label.size = 0.35,
-                           color = "black",
-                           fill="#69b3a2")
-
+                   y = "",
+                   subtitle = "Columbia from 2011-15 had a net gain of 4,406 residents, with other places \nin Missouri, Illinois and Asia being the most common places to move from.")+
+              annotate("label", x = 2.4, y = -21500, size = 2, label = "Net Population Gain")
 sankey
 ```
 
@@ -392,7 +390,70 @@ pop_age_no_MU %>%
   labs(title = "Age difference from national average in Columbia without MU Undergrades", x="Percent difference", y="")
 ```
 
- 
+## Income
+
+Let's do some scatter plots
+
+```{r}
+#median age vs median income
+
+age_var <- acs2021_var %>% filter(grepl("age", label, ignore.case = T)) # S0101_C01_032 - Estimate!!Total!!Total population!!SUMMARY INDICATORS!!Median age (years)
+
+income_var <- acs2021_var %>% filter(grepl("MEDIAN INCOME", concept, ignore.case = T)) #S1903_C01_001
+
+median_age <- get_acs(geography = "place",
+                     variables = "S0101_C01_032",
+                     year = 2021,
+                     survey = "acs1")
+
+median_income <- get_acs(geography = "place",
+                         variables = "S1903_C01_001",
+                         year = 2021,
+                         survey = "acs1")
+
+cities <- c("Columbia city, Missouri", "Cambridge city, Massachusetts", "Springfield city, Missouri", "St. Louis city, Missouri")
+
+age_vs_income <- inner_join(median_age %>% 
+                              rename(age = estimate, 
+                                     moe_age = moe) %>% 
+                              select(GEOID, 
+                                     NAME, 
+                                     age, 
+                                     moe_age), 
+                            median_income %>% 
+                              rename(income = estimate,
+                                     moe_income = moe) %>%
+                              select(GEOID, 
+                                     income, 
+                                     moe_income), 
+                            by = "GEOID") %>% 
+                            mutate(plotlabels = if_else(NAME %in% cities, gsub(" city, .*","", NAME), ""))
+
+p <- age_vs_income %>% 
+  ggplot(aes(x = age, y = income, color=plotlabels)) +
+  geom_point(alpha = 0.75, show.legend = F)+
+  scale_y_continuous(labels = comma)+
+  ylim(0,1000000)+
+  xlim(20,50)+
+  labs(title = "Median Income vs. median age in cities over 65k",
+       y = "Household Median Income",
+       x = "Median Age",
+       caption = "Some outliers are not shown")+ 
+  theme(legend.position = "none")
+  
+p + geom_text_repel(aes(label = plotlabels), size= 3, max.overlaps = Inf, force_pull = 0, segment.length = 10)
+
+#education level vs median income
+
+
+
+#GDP vs education level
+
+#unemployment vs education level
+
+#unemployment vs median age
+```
+
 
 
 
