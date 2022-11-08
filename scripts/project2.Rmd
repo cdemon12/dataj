@@ -16,6 +16,8 @@ library(maps)
 library(sf)
 library(plotly)
 library(networkD3)
+library(ggsankey)
+library(stringr)
 ```
 Documentation for [tidycensus](https://walker-data.com/tidycensus/index.html)
 
@@ -132,9 +134,9 @@ US <- map_data("state")
 
 
 # remove Alaska and Hawaii (maybe, I figure out how to add them in)
-cities <- us.cities %>%
-  filter(country.etc != "AK", country.etc != "HI") %>% 
-  inner_join(education_us_nom, by)
+# cities <- us.cities %>%
+#   filter(country.etc != "AK", country.etc != "HI") %>% 
+#   inner_join(education_us_nom, by)
 
 
 ggplot()+
@@ -184,27 +186,96 @@ Here's my thinking:
 Also, I'm try to think of way to show this graphically.
 
 ```{r}
+#moved to columbia
 links <- boone_flows_age %>%
   filter(AGE_label == "All ages", variable == "MOVEDIN") %>% 
+  rename("source" = "FULL2_NAME", "target" = "FULL1_NAME", "value" = "estimate") %>% 
+  select(source, target, value) %>% 
+  arrange(desc(value)) %>%  b
+  mutate(source = gsub(".*, ","", source))
+
+#create others bin
+
+total_movedin <- boone_flows_age %>% 
+  filter(AGE_label == "All ages", variable == "MOVEDIN") %>% 
+  summarise(sum = sum(estimate, na.rm = T)) %>% 
+  as.numeric()
+
+links <- links %>% 
+  add_row(source =  "Other", target = "Boone County, Missouri", value = total_movedin - sum(links$value))
+
+#moved away
+
+links_movedout <- boone_flows_age %>%
+  filter(AGE_label == "All ages", variable == "MOVEDOUT") %>%
   rename("source" = "FULL1_NAME", "target" = "FULL2_NAME", "value" = "estimate") %>% 
-  select(source, target, value) %>% filter(value > 400)
+  select(source, target, value) %>% 
+  arrange(desc(value)) %>% 
+  head(10)
 
-# needs to create bin for other
+total_movedout <- boone_flows_age %>% 
+  filter(AGE_label == "All ages", variable == "MOVEDOUT") %>% 
+  summarise(sum = sum(estimate, na.rm = T)) %>% 
+  as.numeric()
 
-nodes <- tibble(
-  name=c(as.character(links$source), 
-  as.character(links$target)) %>% unique()
-)
+links_movedout <- links_movedout %>% 
+  add_row(target =  "Other", source= "Boone County, Missouri", value = total_movedout - sum(links_movedout$value)) %>% 
+  add_row(target =  NA, source= "Boone County, Missouri", value = total_movedin-total_movedout)
+
+links <- links %>%
+  rename(boone = target) %>% 
+  uncount(value) %>% 
+  bind_cols(links_movedout %>% 
+              uncount(value) %>% 
+              select(target))
+  
+df <- links %>% 
+  make_long(source, boone, target)
+  
+
+df %>% ggplot(aes(x = x, 
+                  next_x = next_x, 
+                  node = node, 
+                  next_node = next_node,
+                  fill = factor(node),
+                  label = node)) +
+              geom_sankey(flow.alpha = 0.5,
+                          node.color = "black",
+                          show.legend = F) +
+              geom_sankey_text(size = 2,
+                               hjust = -0.5)+
+              theme_sankey(base_size = 10)+
+              theme(legend.position = "none")
+              
+              
+          
+
+# id <- unique(c(as.character(links$source), as.character(links$target)))
+# label <- sub("_[0-9]", "", id)
+# nodes <- data.frame(id = id, label = label)
+# 
+# links$IDsource <- match(links$source, nodes$id)-1 
+# links$IDtarget <- match(links$target, nodes$id)-1
+# 
+# sankeyNetwork(Links = links, Nodes = nodes,
+#               Source = "IDsource", Target = "IDtarget",
+#               Value = "value", NodeID = "label", 
+#               fontSize = 20)
+
+# nodes <- tibble(
+#   name=c(as.character(links$source), 
+#   as.character(links$target)) %>% unique()
+# )
  
-# With networkD3, connection must be provided using id, not using real name like in the links dataframe.. So we need to reformat it.
-links$IDsource <- match(links$source, nodes$name)-1 
-links$IDtarget <- match(links$target, nodes$name)-1
- 
-# Make the Network
-sankeyNetwork(Links = links, Nodes = nodes,
-              Source = "IDsource", Target = "IDtarget",
-              Value = "value", NodeID = "name", 
-              sinksRight=FALSE, fontSize = 12)
+# # With networkD3, connection must be provided using id, not using real name like in the links dataframe.. So we need to reformat it.
+# links$IDsource <- match(links$source, nodes$name)-1 
+# links$IDtarget <- match(links$target, nodes$name)-1
+#  
+# # Make the Network
+# sankeyNetwork(Links = links, Nodes = nodes,
+#               Source = "IDsource", Target = "IDtarget",
+#               Value = "value", NodeID = "name", 
+#               sinksRight=FALSE, fontSize = 12)
 ```
 
 
