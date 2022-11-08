@@ -15,7 +15,6 @@ library(tidycensus)
 library(maps)
 library(sf)
 library(plotly)
-library(networkD3)
 library(ggsankey)
 library(stringr)
 ```
@@ -173,6 +172,13 @@ boone_flows_age <- get_flows(geography = "county",
                              county = "Boone county",
                              year = 2015) # most recent data, unfortunately (2011-2015, I think check this)
 
+boone_flows_age_10 <- get_flows(geography = "county",
+                             breakdown = "AGE",
+                             breakdown_labels = T,
+                             state = "MO",
+                             county = "Boone county",
+                             year = 2010)
+
 boone_flows_age %>% count(AGE_label) #18-19, 20-24 are interesting
 
 ```
@@ -187,95 +193,83 @@ Also, I'm try to think of way to show this graphically.
 
 ```{r}
 #moved to columbia
-links <- boone_flows_age %>%
-  filter(AGE_label == "All ages", variable == "MOVEDIN") %>% 
-  rename("source" = "FULL2_NAME", "target" = "FULL1_NAME", "value" = "estimate") %>% 
-  select(source, target, value) %>% 
-  arrange(desc(value)) %>%  b
-  mutate(source = gsub(".*, ","", source))
-
-#create others bin
-
 total_movedin <- boone_flows_age %>% 
   filter(AGE_label == "All ages", variable == "MOVEDIN") %>% 
   summarise(sum = sum(estimate, na.rm = T)) %>% 
   as.numeric()
-
-links <- links %>% 
-  add_row(source =  "Other", target = "Boone County, Missouri", value = total_movedin - sum(links$value))
-
-#moved away
-
-links_movedout <- boone_flows_age %>%
-  filter(AGE_label == "All ages", variable == "MOVEDOUT") %>%
-  rename("source" = "FULL1_NAME", "target" = "FULL2_NAME", "value" = "estimate") %>% 
-  select(source, target, value) %>% 
-  arrange(desc(value)) %>% 
-  head(10)
 
 total_movedout <- boone_flows_age %>% 
   filter(AGE_label == "All ages", variable == "MOVEDOUT") %>% 
   summarise(sum = sum(estimate, na.rm = T)) %>% 
   as.numeric()
 
-links_movedout <- links_movedout %>% 
-  add_row(target =  "Other", source= "Boone County, Missouri", value = total_movedout - sum(links_movedout$value)) %>% 
-  add_row(target =  NA, source= "Boone County, Missouri", value = total_movedin-total_movedout)
+moved_in <- boone_flows_age %>%
+  filter(AGE_label == "All ages", variable == "MOVEDIN") %>% 
+  rename("source" = "FULL2_NAME", "boone"= "FULL1_NAME", "value" = "estimate") %>% 
+  select(source, boone, value) %>% 
+  mutate(source = gsub(".*, ","", source)) %>%
+  group_by(source) %>% 
+  summarise(value = sum(value), boone = "Boone County") %>% 
+  arrange(desc(value)) %>%
+  head(5)
 
-links <- links %>%
-  rename(boone = target) %>% 
+moved_in <- moved_in %>% 
+  add_row(source =  "Other", 
+          boone = "Boone County", 
+          value = total_movedin - sum(moved_in$value))
+
+moved_out <- boone_flows_age %>%
+  filter(AGE_label == "All ages", variable == "MOVEDOUT") %>% 
+  rename("boone" = "FULL1_NAME", "target" = "FULL2_NAME", "value" = "estimate") %>% 
+  select(boone, target, value) %>% 
+  mutate(target = gsub(".*, ","", target)) %>% 
+  group_by(target) %>% 
+  summarise(value = sum(value), boone = "Boone County") %>% 
+  arrange(desc(value)) %>%
+  head(5)
+  
+moved_out <- moved_out %>% 
+  add_row(target = "Other", 
+          boone = "Boone County", 
+          value = total_movedout - sum(moved_out$value))%>% 
+  add_row(target = "Boone County", 
+          boone = "Boone County", 
+          value = total_movedin-total_movedout)
+
+links <- moved_in %>%
   uncount(value) %>% 
-  bind_cols(links_movedout %>% 
-              uncount(value) %>% 
-              select(target))
-  
-df <- links %>% 
-  make_long(source, boone, target)
+  bind_cols(moved_out %>% 
+            uncount(value) %>% 
+            select(target))%>%
+  rename("Moved from" = source, " " = boone, "Moved to" = target) %>% 
+  make_long("Moved from", " ", "Moved to")
   
 
-df %>% ggplot(aes(x = x, 
+sankey <- links %>% ggplot(aes(x = x, 
                   next_x = next_x, 
                   node = node, 
                   next_node = next_node,
                   fill = factor(node),
-                  label = node)) +
+                  label = paste0("       ", node))) +
               geom_sankey(flow.alpha = 0.5,
                           node.color = "black",
                           show.legend = F) +
               geom_sankey_text(size = 2,
-                               hjust = -0.5)+
+                               hjust = 0)+
               theme_sankey(base_size = 10)+
-              theme(legend.position = "none")
-              
-              
-          
+              theme(legend.position = "none")+
+              labs(title = "Migration flow to and from Boone county from 2011-15",
+                   x = "",
+                   subtitle = "Columbia from 2011-15 had a net gain of 4,406 residents, with other places \nin Missouri, Illinois and Asia being the most common places to move from.") +
+                geom_label(label="Look at this!", 
+                           x=4.1,
+                           y=20,
+                           label.padding = unit(0.55, "lines"),
+                           label.size = 0.35,
+                           color = "black",
+                           fill="#69b3a2")
 
-# id <- unique(c(as.character(links$source), as.character(links$target)))
-# label <- sub("_[0-9]", "", id)
-# nodes <- data.frame(id = id, label = label)
-# 
-# links$IDsource <- match(links$source, nodes$id)-1 
-# links$IDtarget <- match(links$target, nodes$id)-1
-# 
-# sankeyNetwork(Links = links, Nodes = nodes,
-#               Source = "IDsource", Target = "IDtarget",
-#               Value = "value", NodeID = "label", 
-#               fontSize = 20)
-
-# nodes <- tibble(
-#   name=c(as.character(links$source), 
-#   as.character(links$target)) %>% unique()
-# )
- 
-# # With networkD3, connection must be provided using id, not using real name like in the links dataframe.. So we need to reformat it.
-# links$IDsource <- match(links$source, nodes$name)-1 
-# links$IDtarget <- match(links$target, nodes$name)-1
-#  
-# # Make the Network
-# sankeyNetwork(Links = links, Nodes = nodes,
-#               Source = "IDsource", Target = "IDtarget",
-#               Value = "value", NodeID = "name", 
-#               sinksRight=FALSE, fontSize = 12)
+sankey
 ```
 
 
