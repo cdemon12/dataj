@@ -19,6 +19,7 @@ library(ggsankey)
 library(stringr)
 library(scales)
 library(ggrepel)
+library(stats)
 ```
 
 Documentation for [tidycensus](https://walker-data.com/tidycensus/index.html)
@@ -29,6 +30,8 @@ Documention for census variables: (https://data.census.gov)
 acs2021_var <- load_variables(2021,
                               "acs1/subject",
                               cache=TRUE)
+
+cities <- c("Columbia city, Missouri", "Cambridge city, Massachusetts", "Springfield city, Missouri", "St. Louis city, Missouri")
 ```
 
 ## Education levels
@@ -143,16 +146,18 @@ US <- map_data("state")
 #   inner_join(education_us_nom, by)
 
 
-ggplot()+
-  geom_polygon(data = US, aes(x=long, y=lat, group=group), fill="grey", alpha=0.3)+
-  theme_void()+
-  geom_point(data=cities, aes(x=long, y=lat)) +
-  coord_map()
+# ggplot()+
+#   geom_polygon(data = US, aes(x=long, y=lat, group=group), fill="grey", alpha=0.3)+
+#   theme_void()+
+#   geom_point(data=cities, aes(x=long, y=lat)) +
+#   coord_map()
 
 p <- education_us_nom %>% ggplot() +
   geom_sf(size = education_us_nom$estimate/50000)+
   theme_void()+
   geom_polygon(data = US, aes(x=long, y=lat, group=group), fill="grey", alpha=0.3)
+
+ggsave("education_us.png", plot = p)
 
 ggplotly(p)
 
@@ -268,6 +273,8 @@ sankey <- links %>% ggplot(aes(x = x,
                    subtitle = "Columbia from 2011-15 had a net gain of 4,406 residents, with other places \nin Missouri, Illinois and Asia being the most common places to move from.")+
               annotate("label", x = 2.4, y = -21500, size = 2, label = "Net Population Gain")
 sankey
+
+ggsave("plots/sankey.png", plot = sankey)
 ```
 
 
@@ -337,6 +344,8 @@ pop_age_per %>%
   coord_flip() +
   labs(title = "Population difference from national average", x= "", y= "Population difference")
 
+ggsave("plots/pop_age_per.png", plot = p)
+ggsave("plots/pop_age.png", plot = p)
 ```
 I want to see at what Columbia population is proportional to the national average. 
 
@@ -388,6 +397,8 @@ pop_age_no_MU %>%
   ggplot(aes(x=diff, y=AGEGROUP)) +
   geom_bar(stat = "identity") +
   labs(title = "Age difference from national average in Columbia without MU Undergrades", x="Percent difference", y="")
+
+ggsave("plots/pop_age_no_age.png", plot = p)
 ```
 
 ## Income
@@ -404,12 +415,12 @@ income_var <- acs2021_var %>% filter(grepl("MEDIAN INCOME", concept, ignore.case
 median_age <- get_acs(geography = "place",
                      variables = "S0101_C01_032",
                      year = 2021,
-                     survey = "acs1")
+                     survey = "acs1") %>% na.omit()
 
 median_income <- get_acs(geography = "place",
                          variables = "S1903_C01_001",
                          year = 2021,
-                         survey = "acs1")
+                         survey = "acs1") %>% na.omit()
 
 cities <- c("Columbia city, Missouri", "Cambridge city, Massachusetts", "Springfield city, Missouri", "St. Louis city, Missouri")
 
@@ -432,34 +443,140 @@ age_vs_income <- inner_join(median_age %>%
 p <- age_vs_income %>% 
   ggplot(aes(x = age, y = income, color=plotlabels)) +
   geom_point(alpha = 0.75, show.legend = F)+
-  scale_y_continuous(labels = comma)+
-  ylim(0,1000000)+
+  scale_y_continuous(labels = comma, limits = c(0,700000))+
   xlim(20,50)+
   labs(title = "Median Income vs. median age in cities over 65k",
        y = "Household Median Income",
        x = "Median Age",
        caption = "Some outliers are not shown")+ 
-  theme(legend.position = "none")
-  
-p + geom_text_repel(aes(label = plotlabels), size= 3, max.overlaps = Inf, force_pull = 0, segment.length = 10)
+  theme(legend.position = "none")+ 
+  geom_label_repel(aes(label = plotlabels), size= 3, max.overlaps = Inf, force_pull = 0, min.segment.length = 0)
+p
+
+ggsave("plots/income_vs_age.png", plot = p)
 
 #education level vs median income
+education_var <- acs2021_var %>% filter(grepl("education", label, ignore.case = T)) # S1501_C02_015 - college educated and 25 and older
 
+income_var <- acs2021_var %>% filter(grepl("MEDIAN INCOME", concept, ignore.case = T)) #S1903_C01_001
 
+education <- get_acs(geography = "place",
+                     variables = "S1501_C02_015",
+                     year = 2021,
+                     survey = "acs1") %>% na.omit()
 
+median_income <- get_acs(geography = "place",
+                         variables = "S1903_C01_001",
+                         year = 2021,
+                         survey = "acs1") %>% na.omit()
+
+cities <- c("Columbia city, Missouri", "Cambridge city, Massachusetts", "Springfield city, Missouri", "St. Louis city, Missouri")
+
+education_vs_income <- inner_join(education %>% 
+                              rename(education = estimate, 
+                                     moe_education = moe) %>% 
+                              select(GEOID, 
+                                     NAME, 
+                                     education, 
+                                     moe_education), 
+                            median_income %>% 
+                              rename(income = estimate,
+                                     moe_income = moe) %>%
+                              select(GEOID, 
+                                     income, 
+                                     moe_income), 
+                            by = "GEOID") %>% 
+                            mutate(plotlabels = if_else(NAME %in% cities, gsub(" city, .*","", NAME), ""))
+
+p <- education_vs_income %>% 
+  ggplot(aes(x = education, y = income, color=plotlabels)) +
+  geom_point(alpha = 0.75, show.legend = F)+
+  scale_y_continuous(labels = comma, limits = c(0,700000))+
+  labs(title = "Percent of college education of 25 or older \nvs. median income in cities over 65k",
+       y = "Household Median Income",
+       x = "Percent of college education of 25 or older",
+       caption = "Some outliers are not shown")+ 
+  theme(legend.position = "none")+ 
+  geom_label_repel(aes(label = plotlabels), size= 3, max.overlaps = Inf, force_pull = 0, min.segment.length = 0)
+p
+
+ggsave("plots/income_vs_education.png", plot = p)
 #GDP vs education level
 
 #unemployment vs education level
+education_var <- acs2021_var %>% filter(grepl("education", label, ignore.case = T)) # S1501_C02_015 - college educated and 25 and older
+
+unemployment_var <- acs2021_var %>% filter(grepl("unemployment", label, ignore.case = T)) #S2301_C04_001
+
+education <- get_acs(geography = "place",
+                     variables = "S1501_C02_015",
+                     year = 2021,
+                     survey = "acs1") %>% na.omit()
+
+unemployment <- get_acs(geography = "place",
+                         variables = "S2301_C04_001",
+                         year = 2021,
+                         survey = "acs1") %>% na.omit()
+
+education_vs_unemployment <- inner_join(education %>% 
+                              rename(education = estimate, 
+                                     moe_education = moe) %>% 
+                              select(GEOID, 
+                                     NAME, 
+                                     education, 
+                                     moe_education), 
+                            unemployment %>% 
+                              rename(unemployment = estimate,
+                                     moe_unemployment = moe) %>%
+                              select(GEOID, 
+                                     unemployment,
+                                     moe_unemployment), 
+                            by = "GEOID") %>% 
+                            mutate(plotlabels = if_else(NAME %in% cities, gsub(" city, .*","", NAME), ""))
+
+p <- education_vs_unemployment %>% 
+  ggplot(aes(x = education, y = unemployment, color=plotlabels)) +
+  geom_point(alpha = 0.75, show.legend = F)+
+  scale_y_continuous(labels = comma)+
+  labs(title = "Percent of population is college educated (25 or older) \nvs. unemployment rate in cities over 65k",
+       y = "Unemployment rate",
+       x = "Percent of population is college educated (25 or older)",
+       caption = "Some outliers are not shown")+ 
+  theme(legend.position = "none")+ 
+  geom_label_repel(aes(label = plotlabels), size= 3, max.overlaps = Inf, force_pull = 0, min.segment.length = 0)
+p
+
+ggsave("plots/education_vs_unemployment.png", plot = p)
 
 #unemployment vs median age
+age_vs_unemployment <- inner_join(median_age %>% 
+                              rename(age = estimate, 
+                                     moe_age = moe) %>% 
+                              select(GEOID, 
+                                     NAME, 
+                                     age, 
+                                     moe_age), 
+                            unemployment %>% 
+                              rename(unemployment = estimate,
+                                     moe_unemployment = moe) %>%
+                              select(GEOID, 
+                                     unemployment,
+                                     moe_unemployment), 
+                            by = "GEOID") %>% 
+                            mutate(plotlabels = if_else(NAME %in% cities, gsub(" city, .*","", NAME), ""))
+
+p <- age_vs_unemployment %>% 
+  ggplot(aes(x = age, y = unemployment, color=plotlabels)) +
+  geom_point(alpha = 0.75, show.legend = F)+
+  scale_y_continuous(labels = comma)+
+  labs(title = "Median age vs. unemployment rate in cities over 65k",
+       y = "Unemployment rate",
+       x = "Median Age",
+       caption = "Some outliers are not shown")+ 
+  theme(legend.position = "none")+ 
+  geom_label_repel(aes(label = plotlabels), size= 3, max.overlaps = Inf, force_pull = 0, min.segment.length = 0, nudge_y = 6)
+p
+
+ggsave("plots/unemployment_vs_age.png", plot = p)
 ```
-
-
-
-
-
-
-
-
-
-
+```
