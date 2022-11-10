@@ -1,0 +1,141 @@
+---
+title: "Project 3"
+output: html_notebook
+---
+```{r}
+library(tidyverse)
+library(reticulate)
+library(janitor)
+library(tidycensus)
+library(plotly)
+```
+
+
+```{python}
+import pandas as pd
+```
+
+
+```{python}
+apr_district = r"https://apps.dese.mo.gov/MCDS/FileDownloadWebHandler.ashx?filename=69334021-a007Missouri%202019%20APR%20Supporting%20by%20Districts.xlsx"
+
+apr_district = pd.read_excel(apr_district)
+
+apr_schools = r"https://apps.dese.mo.gov/MCDS/FileDownloadWebHandler.ashx?filename=3011bb42-c202Missouri%202019%20APR%20Supporting%20by%20Building.xlsx"
+
+apr_schools = pd.read_excel(apr_schools)
+```
+
+Documentation: https://dese.mo.gov/media/pdf/2019-msip-5-comprehensive-guide-missouri-school-improvement-program
+
+```{r}
+apr_district <- py$apr_district %>% as_tibble()
+
+apr_schools <- py$apr_schools %>% as_tibble()
+```
+
+```{python}
+del apr_district, apr_schools
+```
+
+```{r}
+census_var <- load_variables(year = 2021,
+                             dataset = "acs1",
+                             cache = T)
+
+
+clean_apr <- function (apr) {
+  apr %>% clean_names()
+}
+
+apr_district <- apr_district %>% clean_apr()
+apr_schools <- apr_schools %>% clean_apr()
+
+
+# districts <- get_acs(geography = "school district (unified)",
+#              state = "MO",
+#              variables = "B02003_003",
+#              geometry = T)
+# 
+# districts %>% 
+#   ggplot(aes(fill = estimate)) +
+#   geom_sf(color = NA) +
+#   scale_fill_viridis_c()+
+#   theme_void()+
+#   labs(fill = "Percent of population from 5-9 yo")
+
+
+
+racevars <- c(White = "P2_005N", 
+              Black = "P2_006N", 
+              Asian = "P2_008N", 
+              Hispanic = "P2_002N")
+
+missouri <- get_decennial(
+  geography = "school district (unified)",
+  variables = racevars,
+  state = "MO",
+  geometry = TRUE,
+  summary_var = "P2_001N",
+  year = 2020
+) 
+
+full_state <- get_decennial(
+  geography = "state",
+  variables = racevars,
+  state = "MO",
+  geometry = TRUE,
+  summary_var = "P2_001N",
+  year = 2020
+)
+
+missouri %>%
+  mutate(percent = 100 * (value / summary_value)) %>%
+  ggplot(aes(fill = percent)) +
+  facet_wrap(~variable) +
+  geom_sf(color = NA) +
+  theme_void() + 
+  scale_fill_viridis_c() + 
+  labs(fill = "% of population\n(2020 Census)")
+
+# join
+
+missouri <- missouri %>% 
+  mutate(joiner = gsub(" School.*","", NAME)) %>% 
+  mutate(joiner = gsub(", Missouri", "", joiner)) %>% 
+  mutate(joiner = gsub(" County"," CO.",joiner))%>% 
+  mutate(joiner = if_else(joiner == "Fort Zumwalt R-II", "Ft. Zumwalt R-II", joiner)) %>% 
+  mutate(joiner = if_else(joiner == "Mount Vernon R-V", "Mt. Vernon R-V", joiner)) %>% 
+  mutate(joiner = if_else(joiner == "Neosho R-V", "Neosho School District", joiner)) %>%
+  mutate(joiner = if_else(joiner == "Jefferson City Public", "Jefferson City",joiner)) %>%
+  mutate(joiner = if_else(joiner == "De Soto 73", "Desoto 73", joiner)) %>% 
+  mutate(joiner = if_else(joiner == "Sikeston R-VI", "SIKESTON R-6", joiner)) %>%
+  mutate(joiner = if_else(joiner == "Crawford CO. R-2", "Crawford Co. R-II", joiner)) %>%
+  mutate(joiner = if_else(joiner == "North St. Francis CO. R-I", "North St. Francois CO. R-I", joiner)) %>% # The census misspelled the name of this district
+  mutate(joiner = if_else(joiner == "Normandy", "Normandy Schools Collaborative", joiner)) %>% 
+  mutate(joiner = if_else(joiner == "Sullivan C-2", "Sullivan", joiner)) %>% 
+  mutate(joiner = if_else(joiner == "Wellsville-Middletown R-I", "Wellsville Middletown R-I", joiner)) %>% 
+  mutate(joiner = if_else(joiner == "Nixa", "Nixa Public Schools", joiner)) %>% 
+  mutate(joiner = if_else(joiner == "Joplin", "Joplin Schools", joiner)) %>% 
+  mutate(joiner = if_else(joiner == "Lindbergh", "Lindbergh Schools", joiner)) %>% 
+  mutate(joiner = toupper(joiner)) %>% 
+  filter(variable == "White")
+
+
+missing_districts <- anti_join(apr_district)
+
+apr_district_joined <- 
+  left_join(
+    missouri,
+    apr_district,
+    by = c("joiner" = "district_name"),
+    ignore_case = T
+  )
+
+apr_district_joined %>% 
+  ggplot(aes(fill=s1_ela_curr_mpi))+
+  geom_sf(color=NA)+
+  theme_void()+
+  scale_fill_viridis_c()
+```
+
